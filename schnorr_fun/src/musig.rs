@@ -209,11 +209,13 @@ impl KeyList {
     /// unusual case that the tweak is exactly equal to the negation of the aggregated secret key
     /// it returns `None`.
     pub fn tweak(&self, tweak: Scalar<impl Secrecy, impl ZeroChoice>) -> Option<Self> {
-        let mut tweak = s!(self.tweak + tweak).mark::<Public>();
-        let (agg_key, needs_negation) = g!(self.agg_key + tweak * G)
+        let new_tweak = s!(0 + tweak).mark::<Public>();
+        let (agg_key, needs_negation) = g!(self.agg_key + new_tweak * G)
             .mark::<NonZero>()?
             .into_point_with_even_y();
 
+        // Store accumulated tweak
+        let mut tweak = s!(self.tweak + tweak).mark::<Public>();
         tweak.conditional_negate(needs_negation);
 
         let needs_negation = self.needs_negation ^ needs_negation;
@@ -888,7 +890,7 @@ mod test {
 
     proptest! {
         #[test]
-        fn test_end_to_end(sk1 in any::<Scalar>(), sk2 in any::<Scalar>(), sk3 in any::<Scalar>(), tweak in any::<Scalar<Public, Zero>>(), use_tweak in any::<bool>()) {
+        fn f(sk1 in any::<Scalar>(), sk2 in any::<Scalar>(), sk3 in any::<Scalar>(), tweak in any::<Scalar<Public, Zero>>(), use_tweak in any::<bool>()) {
             let schnorr = Schnorr::<Sha256, _>::new(Deterministic::<Sha256>::default());
             let musig = MuSig::new(schnorr);
             let keypair1 = musig
