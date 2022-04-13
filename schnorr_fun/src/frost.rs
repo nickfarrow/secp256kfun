@@ -2,7 +2,7 @@
 //!
 //! The FROST (Flexible Round-Optimize Schnorr Threshold) multisignature scheme lets you aggregate
 //! multiple public keys into a single public key that requires some threshold t-of-n secret keys to
-//! sign a signature under the aggregate key.
+//! produce a signature under the aggregate key.
 //!
 //! This implementation has NOT yet been made compatible with other existing implementations
 //! [secp256k1-zkp]: https://github.com/ElementsProject/secp256k1-zkp/pull/138
