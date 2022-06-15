@@ -28,8 +28,10 @@ pub mod binonce;
 #[cfg(feature = "alloc")]
 pub mod musig;
 
+pub mod blind;
 #[cfg(feature = "alloc")]
 pub mod frost;
+pub use blind::*;
 
 mod signature;
 pub use signature::Signature;
