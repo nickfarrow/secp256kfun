@@ -25,12 +25,14 @@ pub fn create_blindings<'a, H: Digest<OutputSize = U32> + Clone, NG, R: RngCore 
     let beta = Scalar::random(rng);
 
     // rename blinded to tweaked
-    let blinded_public_key = g!(public_key + t * G)
-        .normalize()
-        .mark::<NonZero>()
-        .expect("added tweak is random");
+    // let blinded_public_key = g!(public_key + t * G)
+    //     .normalize()
+    //     .mark::<NonZero>()
+    //     .expect("added tweak is random");
 
-    let blinded_nonce = g!(nonce + alpha * G + beta * public_key)
+    let blinded_public_key = public_key;
+
+    let blinded_nonce = g!(nonce + alpha * G + beta * blinded_public_key)
         .normalize()
         .mark::<NonZero>()
         .expect("added tweak is random");
@@ -91,12 +93,7 @@ impl Blinder {
     }
 }
 
-pub fn blind_sign(
-    secret: &Scalar,
-    nonce: Scalar,
-    blind_challenge: Scalar,
-    tweak: Scalar,
-) -> Scalar<Public, Zero> {
+pub fn blind_sign(secret: &Scalar, nonce: Scalar, blind_challenge: Scalar) -> Scalar<Public, Zero> {
     s!(nonce + blind_challenge * secret).mark::<Public>()
 }
 
@@ -137,12 +134,7 @@ mod test {
         );
 
         // blind signer uses this challenge to sign under their secret key
-        let blind_signature = blind_sign(
-            &secret,
-            nonce.clone(),
-            blinded.challenge.clone(),
-            blinded.t.clone(),
-        );
+        let blind_signature = blind_sign(&secret, nonce.clone(), blinded.challenge.clone());
 
         // we recieve the blinded signature from the signer, and unblind it
         let unblinded_signature = Signature {
@@ -150,7 +142,9 @@ mod test {
             R: blinded.pubnonce.to_xonly(),
         };
 
-        let (verification_public_key, _) = blinded.public_key.into_point_with_even_y();
+        let (verification_public_key, flippy) = blinded.public_key.into_point_with_even_y();
+
+        dbg!(blinded, flippy);
 
         assert!(schnorr.verify(&verification_public_key, message, &unblinded_signature));
 
