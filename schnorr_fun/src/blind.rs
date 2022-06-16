@@ -25,7 +25,7 @@ pub fn create_blindings<'a, H: Digest<OutputSize = U32> + Clone, NG, R: RngCore 
     let beta = Scalar::random(rng);
 
     // rename blinded to tweaked
-    let blinded_public_key = g!({ public_key } + t * G)
+    let blinded_public_key = g!(public_key + t * G)
         .normalize()
         .mark::<NonZero>()
         .expect("added tweak is random");
@@ -44,6 +44,7 @@ pub fn create_blindings<'a, H: Digest<OutputSize = U32> + Clone, NG, R: RngCore 
     } + beta)
     .mark::<NonZero>()
     .expect("added tweak is random");
+
     (
         blinded_public_key,
         blinded_nonce,
@@ -90,7 +91,12 @@ impl Blinder {
     }
 }
 
-pub fn blind_sign(secret: &Scalar, nonce: Scalar, blind_challenge: Scalar) -> Scalar<Public, Zero> {
+pub fn blind_sign(
+    secret: &Scalar,
+    nonce: Scalar,
+    blind_challenge: Scalar,
+    tweak: Scalar,
+) -> Scalar<Public, Zero> {
     s!(nonce + blind_challenge * secret).mark::<Public>()
 }
 
@@ -131,7 +137,12 @@ mod test {
         );
 
         // blind signer uses this challenge to sign under their secret key
-        let blind_signature = blind_sign(&secret, nonce, blinded.challenge.clone());
+        let blind_signature = blind_sign(
+            &secret,
+            nonce.clone(),
+            blinded.challenge.clone(),
+            blinded.t.clone(),
+        );
 
         // we recieve the blinded signature from the signer, and unblind it
         let unblinded_signature = Signature {
@@ -139,10 +150,16 @@ mod test {
             R: blinded.pubnonce.to_xonly(),
         };
 
-        dbg!(&blinded);
-        dbg!(&unblinded_signature);
-        // This signature is valid under the signer's public key
-        let (verification_public_key, negated) = public_key.into_point_with_even_y();
+        let (verification_public_key, _) = blinded.public_key.into_point_with_even_y();
+
         assert!(schnorr.verify(&verification_public_key, message, &unblinded_signature));
+
+        // let (eveny_nonce, _) = blinded.pubnonce.into_point_with_even_y();
+        // assert_eq!(
+        //     schnorr
+        //         .anticipate_signature(&verification_public_key, &eveny_nonce, message)
+        //         .normalize(),
+        //     g!(unblinded_signature.s * G).normalize()
+        // );
     }
 }
