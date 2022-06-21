@@ -1,4 +1,5 @@
 #![allow(missing_docs)]
+#![allow(unused)]
 //! Blind Schnorr Signatures
 //!
 //! Folllowing https://suredbits.com/schnorr-applications-blind-signatures/
@@ -14,12 +15,12 @@ use secp256kfun::{
 };
 
 pub fn create_blindings<'a, H: Digest<OutputSize = U32> + Clone, NG, R: RngCore + CryptoRng>(
-    nonce: Point,
+    nonce: Point<EvenY>,
     public_key: Point,
     message: Message,
     schnorr: Schnorr<H, NG>,
     rng: &mut R,
-) -> (Point, Point, Scalar, Scalar, Scalar, Scalar) {
+) -> (Point, Point, Scalar, Scalar, Scalar, Scalar, bool, bool) {
     let alpha = Scalar::random(rng);
     let t = Scalar::random(rng);
     let beta = Scalar::random(rng);
@@ -30,12 +31,21 @@ pub fn create_blindings<'a, H: Digest<OutputSize = U32> + Clone, NG, R: RngCore 
     //     .mark::<NonZero>()
     //     .expect("added tweak is random");
 
-    let blinded_public_key = public_key;
+    dbg!(public_key.is_y_even());
+    let public_key_needs_negation = !public_key.is_y_even();
+    let blinded_public_key = public_key.conditional_negate(public_key_needs_negation);
 
     let blinded_nonce = g!(nonce + alpha * G + beta * blinded_public_key)
         .normalize()
         .mark::<NonZero>()
         .expect("added tweak is random");
+
+    dbg!(blinded_nonce);
+    let blinded_nonce_needs_negation = !blinded_nonce.is_y_even();
+    let blinded_nonce = blinded_nonce.conditional_negate(blinded_nonce_needs_negation);
+    dbg!(blinded_nonce);
+
+    dbg!(public_key_needs_negation, blinded_nonce_needs_negation);
 
     let blinded_challenge = s!({
         schnorr.challenge(
@@ -54,6 +64,8 @@ pub fn create_blindings<'a, H: Digest<OutputSize = U32> + Clone, NG, R: RngCore 
         alpha,
         t,
         beta,
+        public_key_needs_negation,
+        blinded_nonce_needs_negation,
     )
 }
 
@@ -63,28 +75,40 @@ pub struct Blinder {
     public_key: Point,
     challenge: Scalar,
     alpha: Scalar,
-    beta: Scalar,
-    t: Scalar,
+    // beta: Scalar,
+    // t: Scalar,
+    needs_negation: bool,
+    nonce_needs_negation: bool,
 }
 
 impl Blinder {
     pub fn blind<H: Digest<OutputSize = U32> + Clone, R: RngCore + CryptoRng>(
-        pubnonce: Point,
+        pubnonce: Point<EvenY>,
         public_key: Point,
         message: Message,
         schnorr: Schnorr<H>,
         rng: &mut R,
     ) -> Self {
-        let (blinded_public_key, blinded_nonce, blinded_challenge, alpha, t, beta) =
-            create_blindings(pubnonce, public_key, message, schnorr, rng);
+        let (
+            blinded_public_key,
+            blinded_nonce,
+            blinded_challenge,
+            alpha,
+            t,
+            beta,
+            needs_negation,
+            nonce_needs_negation,
+        ) = create_blindings(pubnonce, public_key, message, schnorr, rng);
 
         Blinder {
             public_key: blinded_public_key,
             pubnonce: blinded_nonce,
             challenge: blinded_challenge,
             alpha,
-            t,
-            beta,
+            // t,
+            // beta,
+            needs_negation,
+            nonce_needs_negation,
         }
     }
 
@@ -93,8 +117,19 @@ impl Blinder {
     }
 }
 
-pub fn blind_sign(secret: &Scalar, nonce: Scalar, blind_challenge: Scalar) -> Scalar<Public, Zero> {
-    s!(nonce + blind_challenge * secret).mark::<Public>()
+pub fn blind_sign(
+    secret: &Scalar,
+    nonce: &mut Scalar,
+    blind_challenge: Scalar,
+    needs_negation: bool,
+    nonce_needs_negation: bool,
+) -> Scalar<Public, Zero> {
+    let mut negated_blind_challenge = blind_challenge.clone();
+    negated_blind_challenge.conditional_negate(needs_negation);
+
+    nonce.conditional_negate(nonce_needs_negation);
+    let sig = s!({ nonce } + negated_blind_challenge * secret).mark::<Public>();
+    sig
 }
 
 #[cfg(test)]
@@ -117,9 +152,10 @@ mod test {
         let public_key = g!(secret * G).normalize();
 
         // Probably want to reintroduce a singular nonce struct? And move musig/frost to "binonce"
-        let nonce = Scalar::random(&mut rand::thread_rng());
+        let mut nonce = Scalar::random(&mut rand::thread_rng());
         // The blind signer sends a nonce public nonce
-        let pub_nonce = g!(nonce * G).normalize();
+        let (pub_nonce, nonce_negated) = g!(nonce * G).normalize().into_point_with_even_y();
+        nonce.conditional_negate(nonce_negated);
 
         let message =
             Message::<Public>::plain("test", b"Chancellor on brink of second bailout for banks");
@@ -134,7 +170,13 @@ mod test {
         );
 
         // blind signer uses this challenge to sign under their secret key
-        let blind_signature = blind_sign(&secret, nonce.clone(), blinded.challenge.clone());
+        let blind_signature = blind_sign(
+            &secret,
+            &mut nonce.clone(),
+            blinded.challenge.clone(),
+            blinded.needs_negation,
+            blinded.nonce_needs_negation,
+        );
 
         // we recieve the blinded signature from the signer, and unblind it
         let unblinded_signature = Signature {
@@ -144,7 +186,7 @@ mod test {
 
         let (verification_public_key, flippy) = blinded.public_key.into_point_with_even_y();
 
-        dbg!(blinded, flippy);
+        dbg!(flippy);
 
         assert!(schnorr.verify(&verification_public_key, message, &unblinded_signature));
 
