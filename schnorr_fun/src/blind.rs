@@ -71,25 +71,21 @@ use secp256kfun::{
     s, Point, Scalar, G,
 };
 
-/// Create the blindings for a blinded signature
+/// Use [`BlindingTweaks`] to create the blinded public key, challenge, and nonce needed for a blinded signature
 ///
 /// # Returns
 ///
 /// A tweaked_pubkey, blinded_nonce, and a blinded_challenge;
-/// Three blinding values: alpha, t, and beta;
 /// Also returns a needs_negation for the blinded public key and nonce
-pub fn create_blindings<'a, H: Digest<OutputSize = U32> + Clone, NG, R: RngCore + CryptoRng>(
+/// The [`BlindingTweak`] values (alpha, beta, t) may be negated to ensure even y values.
+pub fn create_blinded_values<'a, H: Digest<OutputSize = U32> + Clone, NG>(
     nonce: Point<EvenY>,
     public_key: Point,
     message: Message,
     schnorr: Schnorr<H, NG>,
-    rng: &mut R,
-) -> (Point, Point, Scalar, Scalar, Scalar, Scalar, bool, bool) {
-    let mut alpha = Scalar::random(rng);
-    let mut t = Scalar::random(rng);
-    let mut beta = Scalar::random(rng);
-
-    let tweaked_pubkey = g!(public_key + t * G)
+    blinding_tweaks: &mut BlindingTweaks,
+) -> (Point, Point, Scalar, bool, bool) {
+    let tweaked_pubkey = g!(public_key + blinding_tweaks.t * G)
         .normalize()
         .mark::<NonZero>()
         .expect("added tweak is random");
@@ -97,21 +93,28 @@ pub fn create_blindings<'a, H: Digest<OutputSize = U32> + Clone, NG, R: RngCore 
     let tweaked_pubkey_needs_negation = !tweaked_pubkey.is_y_even();
     let tweaked_pubkey = tweaked_pubkey.conditional_negate(tweaked_pubkey_needs_negation);
 
-    let blinded_nonce = g!(nonce + alpha * G + beta * tweaked_pubkey)
-        .normalize()
-        .mark::<NonZero>()
-        .expect("added tweak is random");
+    let blinded_nonce =
+        g!(nonce + blinding_tweaks.alpha * G + blinding_tweaks.beta * tweaked_pubkey)
+            .normalize()
+            .mark::<NonZero>()
+            .expect("added tweak is random");
 
     let blinded_nonce_needs_negation = !blinded_nonce.is_y_even();
     let blinded_nonce = blinded_nonce.conditional_negate(blinded_nonce_needs_negation);
-    alpha.conditional_negate(blinded_nonce_needs_negation);
-    beta.conditional_negate(blinded_nonce_needs_negation);
-    t.conditional_negate(tweaked_pubkey_needs_negation);
+    blinding_tweaks
+        .alpha
+        .conditional_negate(blinded_nonce_needs_negation);
+    blinding_tweaks
+        .beta
+        .conditional_negate(blinded_nonce_needs_negation);
+    blinding_tweaks
+        .t
+        .conditional_negate(tweaked_pubkey_needs_negation);
 
     let blinded_challenge =
         s!(
             { schnorr.challenge(blinded_nonce.to_xonly(), tweaked_pubkey.to_xonly(), message,) }
-                + beta
+                + blinding_tweaks.beta
         )
         .mark::<NonZero>()
         .expect("added tweak is random");
@@ -120,9 +123,6 @@ pub fn create_blindings<'a, H: Digest<OutputSize = U32> + Clone, NG, R: RngCore 
         tweaked_pubkey,
         blinded_nonce,
         blinded_challenge,
-        alpha,
-        t,
-        beta,
         tweaked_pubkey_needs_negation,
         blinded_nonce_needs_negation,
     )
@@ -142,6 +142,29 @@ pub fn unblind_signature(
     s!(blinded_signature + alpha + challenge * tweak).mark::<Public>()
 }
 
+/// The tweaks used for blinding the nonce, public key, and challenge
+/// which are later used to unblind the signature
+#[derive(Debug)]
+pub struct BlindingTweaks {
+    /// tweak value alpha
+    pub alpha: Scalar,
+    /// tweak value beta
+    pub beta: Scalar,
+    /// tweak value t
+    pub t: Scalar,
+}
+
+impl BlindingTweaks {
+    /// Create new [`BlindingTweaks`] from an rng source
+    pub fn new<R: RngCore + CryptoRng>(rng: &mut R) -> BlindingTweaks {
+        BlindingTweaks {
+            alpha: Scalar::random(rng),
+            beta: Scalar::random(rng),
+            t: Scalar::random(rng),
+        }
+    }
+}
+
 /// Blinder holds a blinded signature context which is later used to unblind the signature
 #[derive(Debug)]
 pub struct Blinder {
@@ -151,12 +174,8 @@ pub struct Blinder {
     pub blinded_nonce: Point,
     /// tweaked challenge c' = c + beta
     pub challenge: Scalar,
-    /// blinding value alpha
-    pub alpha: Scalar,
-    /// blinding value beta
-    pub beta: Scalar,
-    /// blinding value t
-    pub t: Scalar,
+    /// blinding values
+    pub blinding_tweaks: BlindingTweaks,
     /// the tweaked public key needs negation
     pub pubkey_needs_negation: bool,
     /// the pubnonce needs negation
@@ -177,26 +196,22 @@ impl Blinder {
         schnorr: Schnorr<H>,
         rng: &mut R,
     ) -> Self {
+        let mut blinding_tweaks = BlindingTweaks::new(rng);
         let (
             tweaked_pubkey,
             blinded_nonce,
             blinded_challenge,
-            alpha,
-            t,
-            beta,
             pubkey_needs_negation,
             nonce_needs_negation,
-        ) = create_blindings(pubnonce, public_key, message, schnorr, rng);
+        ) = create_blinded_values(pubnonce, public_key, message, schnorr, &mut blinding_tweaks);
 
         Blinder {
             tweaked_pubkey,
             blinded_nonce,
             challenge: blinded_challenge,
-            alpha,
-            t,
-            beta,
             pubkey_needs_negation,
             nonce_needs_negation,
+            blinding_tweaks,
         }
     }
 
@@ -206,7 +221,12 @@ impl Blinder {
     ///
     /// A schnorr signature that should be valid under the tweaked public key and blinded nonce
     pub fn unblind(&self, blinded_signature: Scalar<Public, Zero>) -> Signature {
-        let sig = unblind_signature(blinded_signature, &self.alpha, &self.challenge, &self.t);
+        let sig = unblind_signature(
+            blinded_signature,
+            &self.blinding_tweaks.alpha,
+            &self.challenge,
+            &self.blinding_tweaks.t,
+        );
         Signature {
             s: sig,
             R: self.blinded_nonce.to_xonly(),
