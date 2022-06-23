@@ -37,7 +37,7 @@ mod schnorr;
 pub use schnorr::*;
 mod message;
 pub use message::*;
-mod blind;
+pub mod blind;
 pub use blind::*;
 
 #[cfg(feature = "libsecp_compat")]
