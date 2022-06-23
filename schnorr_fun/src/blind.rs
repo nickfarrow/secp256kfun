@@ -21,9 +21,9 @@ pub fn create_blindings<'a, H: Digest<OutputSize = U32> + Clone, NG, R: RngCore 
     schnorr: Schnorr<H, NG>,
     rng: &mut R,
 ) -> (Point, Point, Scalar, Scalar, Scalar, Scalar, bool, bool) {
-    let alpha = Scalar::random(rng);
+    let mut alpha = Scalar::random(rng);
     let t = Scalar::random(rng);
-    let beta = Scalar::random(rng);
+    let mut beta = Scalar::random(rng);
 
     // rename blinded to tweaked
     // let blinded_public_key = g!(public_key + t * G)
@@ -43,6 +43,8 @@ pub fn create_blindings<'a, H: Digest<OutputSize = U32> + Clone, NG, R: RngCore 
     dbg!(blinded_nonce);
     let blinded_nonce_needs_negation = !blinded_nonce.is_y_even();
     let blinded_nonce = blinded_nonce.conditional_negate(blinded_nonce_needs_negation);
+    alpha.conditional_negate(blinded_nonce_needs_negation);
+    beta.conditional_negate(blinded_nonce_needs_negation);
     dbg!(blinded_nonce);
 
     dbg!(public_key_needs_negation, blinded_nonce_needs_negation);
