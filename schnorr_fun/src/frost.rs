@@ -702,22 +702,20 @@ impl<H: Digest<OutputSize = U32> + Clone, NG: NonceGen + AddTag> Frost<H, NG> {
         secret_share: &Scalar,
         secret_nonces: NonceKeyPair,
     ) -> Scalar<Public, Zero> {
-        let mut lambda = lagrange_lambda(
-            my_index as u32 + 1,
-            &session
-                .nonces
-                .iter()
-                .filter(|(j, _)| **j != (my_index as u32))
-                .map(|(j, _)| *j as u32 + 1)
-                .collect::<Vec<_>>(),
-        );
-        lambda.conditional_negate(frost_key.needs_negation);
+        let other_participant_indexes = &session
+            .nonces
+            .iter()
+            .filter(|(j, _)| **j != (my_index as u32))
+            .map(|(j, _)| *j as u32 + 1)
+            .collect::<Vec<_>>();
+        let lambda = lagrange_lambda(my_index as u32 + 1, other_participant_indexes);
         let [mut r1, mut r2] = secret_nonces.secret;
         r1.conditional_negate(session.nonces_need_negation);
         r2.conditional_negate(session.nonces_need_negation);
 
         let b = &session.binding_coeff;
-        let x = secret_share;
+        let mut x = secret_share.clone();
+        x.conditional_negate(frost_key.needs_negation);
         let c = &session.challenge;
         s!(r1 + (r2 * b) + lambda * x * c).mark::<Public>()
     }
@@ -737,19 +735,17 @@ impl<H: Digest<OutputSize = U32> + Clone, NG: NonceGen + AddTag> Frost<H, NG> {
         signature_share: Scalar<Public, Zero>,
     ) -> bool {
         let s = signature_share;
-        let mut lambda = lagrange_lambda(
-            index as u32 + 1,
-            &session
-                .nonces
-                .iter()
-                .filter(|(j, _)| **j != (index as u32))
-                .map(|(j, _)| *j as u32 + 1)
-                .collect::<Vec<_>>(),
-        );
-        lambda.conditional_negate(frost_key.needs_negation);
+        let other_participant_indexes = &session
+            .nonces
+            .iter()
+            .filter(|(j, _)| **j != (index as u32))
+            .map(|(j, _)| *j as u32 + 1)
+            .collect::<Vec<_>>();
+        let lambda = lagrange_lambda(index as u32 + 1, other_participant_indexes);
         let c = &session.challenge;
         let b = &session.binding_coeff;
-        let X = frost_key.verification_shares[index as usize];
+        let mut X = frost_key.verification_shares[index as usize];
+        X = X.conditional_negate(frost_key.needs_negation);
         let [ref R1, ref R2] = session
             .nonces
             .get(&(index as u32))
