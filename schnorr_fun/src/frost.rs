@@ -26,6 +26,7 @@
 //!     fun::marker::Public
 //! };
 //! use schnorr_fun::fun::Scalar;
+//! use secp256kfun::marker::{Normal, Mark};
 //! use sha2::Sha256;
 //! // use SHA256 with deterministic nonce generation
 //! let frost = Frost::new(Schnorr::<Sha256, Deterministic<Sha256>>::new(
@@ -88,8 +89,8 @@
 //! # ]
 //! # .concat();
 //! // generate nonces for this signing session
-//! let nonce = frost.gen_nonce(&secret_share, &sid, Some(frost_key.public_key()), None);
-//! # let nonce3 = frost.gen_nonce(&secret_share3, &sid3, Some(frost_key.public_key()), None);
+//! let nonce = frost.gen_nonce(&secret_share, &sid, Some(frost_key.public_key().mark::<Normal>()), None);
+//! # let nonce3 = frost.gen_nonce(&secret_share3, &sid3, Some(frost_key.public_key().mark::<Normal>()), None);
 //! // share your public nonce with the other signing participant(s)
 //! # let recieved_nonce3 = nonce3.public();
 //! // recieve public nonces from other signers with their participant index
@@ -929,7 +930,7 @@ impl<H: Digest<OutputSize = U32> + Clone, NG: NonceGen> Frost<H, NG> {
         &self,
         secret: &Scalar,
         session_id: &[u8],
-        public_key: Option<Point<impl Normalized>>,
+        public_key: Option<Point>,
         message: Option<Message<'_>>,
     ) -> NonceKeyPair {
         NonceKeyPair::generate(
@@ -1054,7 +1055,7 @@ mod test {
                 frost.gen_nonce(
                     &secret_shares[*i as usize],
                     &[sid.as_slice(), [*i as u8].as_slice()].concat(),
-                    Some(frost_keys[signer_indexes[0]].public_key()),
+                    Some(frost_keys[signer_indexes[0]].public_key().mark::<Normal>()),
                     None)
                 ).collect();
 
@@ -1220,13 +1221,13 @@ mod test {
         let nonce1 = frost.gen_nonce(
             &secret_share1,
             &sid1,
-            Some(xonly_frost_key.public_key()),
+            Some(xonly_frost_key.public_key().mark::<Normal>()),
             Some(message),
         );
         let nonce3 = frost.gen_nonce(
             &secret_share3,
             &sid2,
-            Some(xonly_frost_key.public_key()),
+            Some(xonly_frost_key.public_key().mark::<Normal>()),
             Some(message),
         );
         let nonces = vec![(0, nonce1.public()), (2, nonce3.public())];
