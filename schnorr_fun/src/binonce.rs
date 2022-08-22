@@ -13,7 +13,7 @@ use secp256kfun::{derive_nonce, g, marker::*, nonce::NonceGen, Point, Scalar, G}
 /// spec](https://github.com/jonasnick/bips/pull/21) specifies that the aggregate nonce is allowed
 /// to be zero to avoid having to abort the protocol in this case.
 #[derive(Clone, Copy, PartialEq, Debug, Eq)]
-pub struct Nonce<Z=NonZero>(pub [Point<Normal, Public, Z>; 2]);
+pub struct Nonce<Z = NonZero>(pub [Point<Normal, Public, Z>; 2]);
 
 impl<Z: ZeroChoice> core::hash::Hash for Nonce<Z> {
     fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
