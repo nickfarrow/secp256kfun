@@ -141,11 +141,19 @@ pub struct Frost<H, NG> {
     keygen_id_hash: H,
 }
 
-impl<H: Tagged, NG: AddTag + Clone> Frost<H, NG> {
+impl<H: Default + Tagged + Digest<OutputSize = U32>, NG: Default + AddTag> Default
+    for Frost<H, NG>
+{
+    fn default() -> Self {
+        Frost::new(Schnorr::default())
+    }
+}
+
+impl<H: Tagged, NG: AddTag> Frost<H, NG> {
     /// Generate a new Frost context from a Schnorr context.
     pub fn new(schnorr: Schnorr<H, NG>) -> Self {
         Self {
-            schnorr: schnorr.clone(),
+            schnorr,
             binding_hash: H::default().tagged(b"frost/binding"),
             keygen_id_hash: H::default().tagged(b"frost/keygenid"),
         }
