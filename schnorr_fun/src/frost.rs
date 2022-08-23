@@ -409,7 +409,7 @@ impl FrostKey {
     /// Returns a new [`FrostKey`] with the same parties but a different frost public key.
     /// In the erroneous case that the tweak is exactly equal to the negation of the aggregate
     /// secret key it returns `None`.
-    pub fn tweak(&mut self, tweak: Scalar<impl Secrecy, impl ZeroChoice>) -> Option<Self> {
+    pub fn tweak(self, tweak: Scalar<impl Secrecy, impl ZeroChoice>) -> Option<Self> {
         let public_key = g!(self.public_key + tweak * G)
             .normalize()
             .mark::<NonZero>()?;
