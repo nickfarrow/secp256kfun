@@ -522,6 +522,16 @@ impl XOnlyFrostKey {
             threshold: self.threshold,
         })
     }
+
+    /// The threshold number of participants required in a signing coalition to produce a valid signature.
+    pub fn threshold(&self) -> u32 {
+        self.threshold
+    }
+
+    /// The total number of signers in this frost multisignature.
+    pub fn n_signers(&self) -> u32 {
+        self.verification_shares.len() as u32
+    }
 }
 
 impl<H: Digest<OutputSize = U32> + Clone, NG: NonceGen> Frost<H, NG> {
