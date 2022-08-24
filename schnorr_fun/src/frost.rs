@@ -757,6 +757,13 @@ pub struct SignSession {
     nonces: BTreeMap<u32, Nonce>,
 }
 
+impl SignSession {
+    /// mah docs
+    pub fn participants(&self) -> impl DoubleEndedIterator<Item = u32> + '_ {
+        self.nonces.iter().map(|(i, _)| *i)
+    }
+}
+
 impl<H: Digest<OutputSize = U32> + Clone, NG> Frost<H, NG> {
     /// Start a FROST signing session.
     ///
