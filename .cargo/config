@@ -1,2 +1,8 @@
 [target.wasm32-unknown-unknown]
 runner = 'wasm-bindgen-test-runner'
+
+
+# You need to install the "arm-none-linux-gnueabihf" linker on your system and add to path
+# https://aur.archlinux.org/arm-none-linux-gnueabihf-toolchain-bin.git
+[target.armv7-unknown-linux-gnueabihf]
+linker = "arm-none-linux-gnueabihf-gcc"
