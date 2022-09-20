@@ -37,7 +37,7 @@
 //! let scalar_poly = frost.new_scalar_poly(Scalar::random(&mut rng), 2, b"frost-unique-id");
 //! # let scalar_poly2 = frost.new_scalar_poly(Scalar::random(&mut rng), 2, b"frost-unique-id");
 //! # let scalar_poly3 = frost.new_scalar_poly(Scalar::random(&mut rng), 2, b"frost-unique-id");
-//! // share our public point poly, and recieve the point polys from other participants
+//! // share our public point poly, and receive the point polys from other participants
 //! # let point_poly2 = scalar_poly2.to_point_poly();
 //! # let point_poly3 = scalar_poly3.to_point_poly();
 //! let point_polys = vec![scalar_poly.to_point_poly(), point_poly2, point_poly3];
@@ -47,17 +47,17 @@
 //! # let (shares2, pop2) = frost.create_shares(&keygen, scalar_poly2);
 //! # let (shares3, pop3) = frost.create_shares(&keygen, scalar_poly3);
 //! // send the secret share at index i and all proofs-of-possession to each other participant i,
-//! // and recieve our shares from each other participant as well as their proofs-of-possession.
-//! let recieved_shares = vec![shares[0].clone(), shares2[0].clone(), shares3[0].clone()];
-//! # let recieved_shares3 = vec![shares[2].clone(), shares2[2].clone(), shares3[2].clone()];
+//! // and receive our shares from each other participant as well as their proofs-of-possession.
+//! let received_shares = vec![shares[0].clone(), shares2[0].clone(), shares3[0].clone()];
+//! # let received_shares3 = vec![shares[2].clone(), shares2[2].clone(), shares3[2].clone()];
 //! let proofs_of_possession = vec![pop, pop2, pop3];
-//! // finish keygen by verifying the shares we recieved, verifying all proofs-of-possession,
-//! // and calulate our long-lived secret share of the joint FROST key.
+//! // finish keygen by verifying the shares we received, verifying all proofs-of-possession,
+//! // and calculate our long-lived secret share of the joint FROST key.
 //! let (secret_share, frost_key) = frost
 //!     .finish_keygen_to_xonly(
 //!         keygen.clone(),
 //!         0,
-//!         recieved_shares,
+//!         received_shares,
 //!         proofs_of_possession.clone(),
 //!     )
 //!     .unwrap();
@@ -65,12 +65,12 @@
 //! #    .finish_keygen_to_xonly(
 //! #        keygen.clone(),
 //! #        2,
-//! #        recieved_shares3,
+//! #        received_shares3,
 //! #        proofs_of_possession.clone(),
 //! #    )
 //! #    .unwrap();
 //! // signing parties must use a common set of nonces when creating signature shares.
-//! // nonces can be derived from a session id that use includes publicly known values.
+//! // nonces can be derived from a session id which is created from publicly known values.
 //! let verification_shares_bytes: Vec<_> = frost_key
 //!     .verification_shares()
 //!     .map(|share| share.to_bytes())
@@ -92,10 +92,10 @@
 //! let nonce = frost.gen_nonce(&secret_share, &sid, Some(frost_key.public_key().normalize()), None);
 //! # let nonce3 = frost.gen_nonce(&secret_share3, &sid3, Some(frost_key.public_key().normalize()), None);
 //! // share your public nonce with the other signing participant(s)
-//! # let recieved_nonce3 = nonce3.public();
-//! // recieve public nonces from other signers with their participant index
-//! let nonces = vec![(0, nonce.public()), (2, recieved_nonce3)];
-//! # let nonces3 = vec![(0, nonce.public()), (2, recieved_nonce3)];
+//! # let received_nonce3 = nonce3.public();
+//! // receive public nonces from other signers with their participant index
+//! let nonces = vec![(0, nonce.public()), (2, received_nonce3)];
+//! # let nonces3 = vec![(0, nonce.public()), (2, received_nonce3)];
 //! // start a sign session with these nonces for a message
 //! let message =  Message::plain("my-app", b"chancellor on brink of second bailout for banks");
 //! let session = frost.start_sign_session(&frost_key, nonces, message);
@@ -103,7 +103,7 @@
 //! // create a partial signature using our secret share and secret nonce
 //! let sig = frost.sign(&frost_key, &session, 0, &secret_share, nonce);
 //! # let sig3 = frost.sign(&frost_key, &session3, 2, &secret_share3, nonce3);
-//! // recieve the partial signature(s) from the other participant(s) and verify
+//! // receive the partial signature(s) from the other participant(s) and verify
 //! assert!(frost.verify_signature_share(&frost_key, &session, 2, sig3));
 //! // combine signature shares into a single signature that is valid under the FROST key
 //! let combined_sig = frost.combine_signature_shares(&frost_key, &session, vec![sig, sig3]);
@@ -423,7 +423,7 @@ impl FrostKey {
 
     /// Convert the key into a `Bip340AggKey`.
     ///
-    /// This is the BIP340 compatiple version of the key which you can put in a segwitv1
+    /// This is the BIP340 compatible version of the key which you can put in a segwitv1
     pub fn into_xonly_key(self) -> XOnlyFrostKey {
         let (public_key, needs_negation) = self.public_key.into_point_with_even_y();
         let mut tweak = self.tweak;
@@ -477,7 +477,7 @@ impl XOnlyFrostKey {
     ///
     /// ## Return value
     ///
-    /// A point (normalised to have an even Y coordinate).
+    /// A point (normalized to have an even Y coordinate).
     pub fn public_key(&self) -> Point<EvenY> {
         self.public_key
     }
@@ -664,7 +664,7 @@ impl<H: Digest<OutputSize = U32> + Clone, NG> Frost<H, NG> {
         })
     }
 
-    /// Collect the vector of all recieved secret shares into your total long-lived secret share.
+    /// Collect the vector of all received secret shares into your total long-lived secret share.
     /// The secret_shares includes your own share as well as shares from each of the other parties.
     ///
     /// The secret_shares are validated to match the expected result
@@ -745,7 +745,7 @@ impl<H: Digest<OutputSize = U32> + Clone, NG: NonceGen> Frost<H, NG> {
     /// Otherwise you can use your secret share of the frost key.
     ///
     /// The application must decide upon a unique `sid` for this frost multisignature.
-    /// For example, the concatenation of: my_signing_index, verfication_shares, purpose
+    /// For example, the concatenation of: my_signing_index, verification_shares, purpose
     ///
     /// ## Return Value
     ///
@@ -1027,12 +1027,12 @@ mod test {
                 shares_vec.push(shares);
             }
 
-            // collect the recieved shares for each party
-            let mut recieved_shares: Vec<Vec<_>> = vec![];
+            // collect the received shares for each party
+            let mut received_shares: Vec<Vec<_>> = vec![];
             for party_index in 0..n_parties {
-                recieved_shares.push(vec![]);
+                received_shares.push(vec![]);
                 for share_index in 0..n_parties {
-                    recieved_shares[party_index]
+                    received_shares[party_index]
                         .push(shares_vec[share_index][party_index].clone());
                 }
             }
@@ -1042,7 +1042,7 @@ mod test {
                 let (secret_share, mut frost_key) = frost.finish_keygen(
                     KeyGen.clone(),
                     i,
-                    recieved_shares[i].clone(),
+                    received_shares[i].clone(),
                     proofs_of_possession.clone(),
                 )
                 .unwrap();
@@ -1092,16 +1092,17 @@ mod test {
                     None)
                 ).collect();
 
-            let mut recieved_nonces: Vec<_> = vec![];
+            let mut received_nonces: Vec<_> = vec![];
             for (i, nonce) in signer_indexes.iter().zip(nonces.clone()) {
-                recieved_nonces.push((*i, nonce.public()));
+                received_nonces.push((*i, nonce.public()));
             }
 
+            let msg = Message::plain("test", b"test");
             // Create Frost signing session
             let signing_session = frost.start_sign_session(
                 &frost_keys[signer_indexes[0]],
-                recieved_nonces.clone(),
-                Message::plain("test", b"test")
+                received_nonces.clone(),
+                msg
             );
 
             let mut signatures = vec![];
@@ -1109,8 +1110,8 @@ mod test {
                 let signer_index = signer_indexes[i];
                 let session = frost.start_sign_session(
                     &frost_keys[signer_index],
-                    recieved_nonces.clone(),
-                    Message::plain("test", b"test")
+                    received_nonces.clone(),
+                    msg
                 );
                 let sig = frost.sign(
                     &frost_keys[signer_index],
@@ -1133,7 +1134,7 @@ mod test {
 
             assert!(frost.schnorr.verify(
                 &frost_keys[signer_indexes[0]].public_key(),
-                Message::<Public>::plain("test", b"test"),
+                msg,
                 &combined_sig
             ));
         }
