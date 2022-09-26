@@ -532,6 +532,10 @@ impl XOnlyFrostKey {
     }
 }
 
+#[derive(Clone, Debug)]
+/// TODO
+pub struct IssuanceShareFragment(Vec<u8>);
+
 impl<H: Digest<OutputSize = U32> + Clone, NG: NonceGen> Frost<H, NG> {
     /// Create a scalar polynomial where the first coefficient is a specified secret
     /// and the remaining coefficients are generated using the internal nonce_gen.
@@ -588,6 +592,46 @@ impl<H: Digest<OutputSize = U32> + Clone, NG: NonceGen> Frost<H, NG> {
             .collect();
 
         (shares, pop)
+    }
+
+    /// TODO
+    pub fn create_issuance_fragments(
+        &self,
+        key_gen: &KeyGen,
+        scalar_poly: ScalarPoly,
+        num_issuance_shares: usize,
+    ) -> Vec<Vec<IssuanceShareFragment>> {
+        let issuance_shares: Vec<_> = (key_gen.point_polys.len()
+            ..key_gen.point_polys.len() + num_issuance_shares)
+            .map(|i| scalar_poly.eval((i + 1) as u32))
+            .collect();
+
+        // Get num_issuance_shares sets of N fragments for each share
+
+        let fragments: Vec<_> = issuance_shares
+            .iter()
+            .map(|share| {
+                let bytes: Vec<_> = [vec![0; 32].as_slice(), share.to_bytes().as_slice()].concat();
+                let ss = shamirsecretsharing::create_shares(
+                    &bytes,
+                    key_gen.point_polys.len() as u8,
+                    key_gen.frost_key.threshold as u8,
+                )
+                .unwrap();
+                ss
+            })
+            .collect();
+
+        let fragments_for_party: Vec<_> = (0..key_gen.point_polys.len())
+            .map(|party_index| {
+                fragments
+                    .iter()
+                    .map(|fragment_set| IssuanceShareFragment(fragment_set[party_index].clone()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        fragments_for_party
     }
 }
 
@@ -992,6 +1036,178 @@ mod test {
         },
     };
     use sha2::Sha256;
+
+    #[test]
+    fn frost_test_issuance() {
+        // Create a secret polynomial for each participant
+        let sp1 = ScalarPoly::new(vec![s!(3), s!(7)]);
+        let sp2 = ScalarPoly::new(vec![s!(11), s!(13)]);
+        let sp3 = ScalarPoly::new(vec![s!(17), s!(19)]);
+
+        let frost = Frost::new(Schnorr::<Sha256, Deterministic<Sha256>>::new(
+            Deterministic::<Sha256>::default(),
+        ));
+        let point_polys = vec![
+            sp1.to_point_poly(),
+            sp2.to_point_poly(),
+            sp3.to_point_poly(),
+        ];
+
+        let KeyGen = frost.new_keygen(point_polys).unwrap();
+        let (shares1, pop1) = frost.create_shares(&KeyGen, sp1.clone());
+        let (shares2, pop2) = frost.create_shares(&KeyGen, sp2.clone());
+        let (shares3, pop3) = frost.create_shares(&KeyGen, sp3.clone());
+
+        let fragments1 = frost.create_issuance_fragments(&KeyGen, sp1, 1);
+        let fragments2 = frost.create_issuance_fragments(&KeyGen, sp2, 1);
+        let fragments3 = frost.create_issuance_fragments(&KeyGen, sp3, 1);
+
+        // Participants share their fragments.
+        let _p1_recieved_fragments = vec![fragments2[0][0].clone(), fragments3[0][0].clone()];
+        let _p2_recieved_fragments = vec![fragments1[1][0].clone(), fragments3[1][0].clone()];
+        let _p3_recieved_fragments = vec![fragments1[2][0].clone(), fragments2[2][0].clone()];
+
+        // Now we can issue a new keygen with 2 sets of fragments
+        // Since this is the first new issuance, we use the first set of fragments that each party recieved
+
+        // A new party recieves fragments from a threshold number of parties:
+        let p4_collected_fragments = vec![
+            vec![fragments1[0][0].clone(), fragments1[1][0].clone()], // From P1 and P2
+            vec![fragments2[0][0].clone(), fragments2[1][0].clone()], // From P1 and P2
+            vec![fragments3[0][0].clone(), fragments3[1][0].clone()], // From P1 and P2
+        ];
+
+        let p4_collected_fragments_vec: Vec<Vec<Vec<u8>>> = p4_collected_fragments
+            .iter()
+            .map(|shares| shares.iter().map(|share| share.0.clone()).collect())
+            .collect();
+
+        let mut restored_shares = vec![];
+        for fragments in p4_collected_fragments_vec {
+            // let fragments = vec![
+            //     p4_collected_fragments[0][i].0.clone(),
+            //     p4_collected_fragments[1][i].0.clone(),
+            // ];
+            let r: [u8; 64] = shamirsecretsharing::combine_shares(&fragments)
+                .unwrap()
+                .unwrap()
+                .try_into()
+                .unwrap();
+
+            let mut scalar_bytes: [u8; 32] = Default::default();
+            scalar_bytes.copy_from_slice(&r[32..]);
+
+            let scalar_share = Scalar::from_bytes(scalar_bytes).unwrap();
+            restored_shares.push(scalar_share);
+        }
+
+        // ALSO NEED TO SHAMIR SHARE POPS?
+        let proofs_of_possession = vec![pop1, pop2, pop3];
+
+        // LOAD p4
+        let (secret_share4, frost_key4) = frost
+            .finish_keygen(
+                KeyGen.clone(),
+                3,
+                restored_shares.clone(),
+                proofs_of_possession.clone(),
+            )
+            .unwrap();
+
+        dbg!(restored_shares, secret_share4, frost_key4);
+
+        let (secret_share1, frost_key) = frost
+            .finish_keygen(
+                KeyGen.clone(),
+                0,
+                vec![shares1[0].clone(), shares2[0].clone(), shares3[0].clone()],
+                proofs_of_possession.clone(),
+            )
+            .unwrap();
+        let (_secret_share2, frost_key2) = frost
+            .finish_keygen(
+                KeyGen.clone(),
+                1,
+                vec![shares1[1].clone(), shares2[1].clone(), shares3[1].clone()],
+                proofs_of_possession.clone(),
+            )
+            .unwrap();
+        let (secret_share3, frost_key3) = frost
+            .finish_keygen(
+                KeyGen.clone(),
+                2,
+                vec![shares1[2].clone(), shares2[2].clone(), shares3[2].clone()],
+                proofs_of_possession,
+            )
+            .unwrap();
+
+        assert_eq!(frost_key, frost_key2);
+        assert_eq!(frost_key, frost_key3);
+
+        let xonly_frost_key = frost_key.into_xonly_key();
+        let xonly_frost_key2 = frost_key2.into_xonly_key();
+        let xonly_frost_key3 = frost_key3.into_xonly_key();
+
+        let verification_shares_bytes: Vec<_> = xonly_frost_key
+            .verification_shares
+            .iter()
+            .map(|share| share.to_bytes())
+            .collect();
+
+        // Create unique session IDs for these signing sessions
+        let sid1 = [
+            verification_shares_bytes.concat().as_slice(),
+            b"frost-end-to-end-test-1".as_slice(),
+            b"0".as_slice(),
+        ]
+        .concat();
+
+        let sid2 = [
+            verification_shares_bytes.concat().as_slice(),
+            b"frost-end-to-end-test-2".as_slice(),
+            b"2".as_slice(),
+        ]
+        .concat();
+
+        let message = Message::plain("test", b"test");
+        let nonce1 = frost.gen_nonce(
+            &secret_share1,
+            &sid1,
+            Some(xonly_frost_key.public_key().normalize()),
+            Some(message),
+        );
+        let nonce3 = frost.gen_nonce(
+            &secret_share3,
+            &sid2,
+            Some(xonly_frost_key.public_key().normalize()),
+            Some(message),
+        );
+        let nonces = vec![(0, nonce1.public()), (2, nonce3.public())];
+        let nonces2 = vec![(0, nonce1.public()), (2, nonce3.public())];
+
+        let session = frost.start_sign_session(&xonly_frost_key, nonces, message);
+        dbg!(&session);
+        {
+            let session2 = frost.start_sign_session(&xonly_frost_key2, nonces2, message);
+            assert_eq!(session2, session);
+        }
+
+        let sig1 = frost.sign(&xonly_frost_key, &session, 0, &secret_share1, nonce1);
+        let sig3 = frost.sign(&xonly_frost_key3, &session, 2, &secret_share3, nonce3);
+
+        dbg!(sig1, sig3);
+
+        assert!(frost.verify_signature_share(&xonly_frost_key, &session, 0, sig1));
+        assert!(frost.verify_signature_share(&xonly_frost_key, &session, 2, sig3));
+        let combined_sig =
+            frost.combine_signature_shares(&xonly_frost_key, &session, vec![sig1, sig3]);
+
+        assert!(frost.schnorr.verify(
+            &xonly_frost_key.public_key(),
+            Message::<Public>::plain("test", b"test"),
+            &combined_sig
+        ));
+    }
 
     proptest! {
         #[test]
