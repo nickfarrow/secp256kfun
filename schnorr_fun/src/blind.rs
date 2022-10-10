@@ -3,17 +3,17 @@
 //! Produce a schnorr signature where the signer does not know what they have signed.
 //!
 //! A blind signing server (with public key `X = x*G`) sends a public nonce (`R = k*G`) to the user who wants a message signed.
-//! The user blinds this nonce (`R' = R + alpha*G + beta*X`) as well as the server's public key by adding a random tweak (`X' = X + t*G`).
+//! The user generates two random scalars (alpha, beta) and uses them to blinds this nonce (`R' = R + alpha*G + beta*X`).
 //!
-//! A challenge for the message (`M`) is created using these blinded values (`c = H[R'|X'|M]`), and this challenge is then blinded
+//! A challenge for the message (`M`) is created using these blinded values (`c = H[R'|X|M]`), and this challenge is then blinded
 //! also (`c' = c + beta`). The blinded challenge is sent to the signing server and is signed (`s = k + c'*x`).
 //!
 //! Note that when running multiple sessions in parallel a signing server should use `safe_blind_sign_multiple` which will randomly
 //! fail on 1 out of N signing requests. This is to prevent Wagner attacks where parallel signing sessions allow for a forgery.
 //!
-//! Once the user recieves the blinded signature, they can unblind it (`s' = s + alpha + c*t`).
-//! The unblinded signature (`s', R'`) is a valid schnorr signature under the tweaked public key (`X'`).
-//! The signer can not correlate this signature-nonce pair even if they know the tweaked public key, signature, message, and nonce.
+//! Once the user recieves the blinded signature, they can unblind it (`s' = s + alpha).
+//! The unblinded signature (`s', R'`) is a valid schnorr signature under the public key (`X`).
+//! The signer can not correlate this signature-nonce pair even if they know the public key, signature, message, and nonce.
 //!
 //! This implementation mostly follows this [SuredBits article] and [Blind Schnorr Signatures in the Algebraic Group Model].
 //!
@@ -89,15 +89,14 @@
 //! );
 //!
 //! // We iterate over our signing sessions, unblinding the session which completed.
-//! // This reveals an uncorrelated signature for the message that is valid under the tweaked pubkey.
+//! // This reveals an uncorrelated signature for the message that is valid under the pubkey.
 //! // The server has also not seen the nonce for this signature.
 //! for (blind_session, blind_signature) in blind_sessions.iter().zip(session_signatures) {
 //!     match blind_signature {
 //!         Some(blind_signature) => {
 //!             let unblinded_signature = blind_session.unblind(blind_signature);
-//!             // Validate the unblinded signature against the tweaked public key
-//!             let (verification_pubkey, _) = blind_session.tweaked_pubkey.into_point_with_even_y();
-//!             assert!(schnorr.verify(&verification_pubkey, message, &unblinded_signature));
+//!             // Validate the unblinded signature against the public key
+//!             assert!(schnorr.verify(&public_key, message, &unblinded_signature));
 //!         }
 //!         None => {}
 //!     }
@@ -121,7 +120,7 @@ use secp256kfun::{
 ///
 /// # Returns
 ///
-/// A tweaked_pubkey, blinded_nonce, and a blinded_challenge;
+/// A blinded_nonce and a blinded_challenge;
 /// Also returns a needs_negation for the blinded public key and nonce
 /// The [`BlindingTweaks`] values (alpha, beta, t) may be negated to ensure even y values.
 pub fn create_blinded_values<'a, H: Digest<OutputSize = U32> + Clone, NG>(
@@ -130,39 +129,24 @@ pub fn create_blinded_values<'a, H: Digest<OutputSize = U32> + Clone, NG>(
     message: Message,
     schnorr: Schnorr<H, NG>,
     blinding_tweaks: &mut BlindingTweaks,
-) -> (Point, Point, Scalar, bool) {
-    let tweaked_pubkey = g!(public_key + blinding_tweaks.t * G)
+) -> (Point, Scalar, bool) {
+    let blinded_nonce = g!(nonce + blinding_tweaks.alpha * G + blinding_tweaks.beta * public_key)
         .normalize()
         .non_zero()
         .expect("added tweak is random");
-
-    let tweaked_pubkey_needs_negation = !tweaked_pubkey.is_y_even();
-    let tweaked_pubkey = tweaked_pubkey.conditional_negate(tweaked_pubkey_needs_negation);
-
-    let blinded_nonce =
-        g!(nonce + blinding_tweaks.alpha * G + blinding_tweaks.beta * tweaked_pubkey)
-            .normalize()
-            .non_zero()
-            .expect("added tweak is random");
 
     // we're actually going to discard these tweaks if the blinded nonce does need negation,
     // if we assert that we sample an even blinded nonce, then we have less to communicate
     let (xonly_blinded_nonce, blinded_nonce_needs_negation) =
         blinded_nonce.into_point_with_even_y();
 
-    let (xonly_tweaked_pubkey, _) = tweaked_pubkey.into_point_with_even_y();
-
-    let mut blinded_challenge =
-        s!(
-            { schnorr.challenge(&xonly_blinded_nonce, &xonly_tweaked_pubkey, message,) }
-                + blinding_tweaks.beta
-        )
-        .non_zero()
-        .expect("added tweak is random");
-    blinded_challenge.conditional_negate(tweaked_pubkey_needs_negation);
+    let blinded_challenge = s!(
+        { schnorr.challenge(&xonly_blinded_nonce, &public_key, message,) } + blinding_tweaks.beta
+    )
+    .non_zero()
+    .expect("added tweak is random");
 
     (
-        tweaked_pubkey,
         blinded_nonce,
         blinded_challenge,
         blinded_nonce_needs_negation,
@@ -177,10 +161,8 @@ pub fn create_blinded_values<'a, H: Digest<OutputSize = U32> + Clone, NG>(
 pub fn unblind_signature(
     blinded_signature: Scalar<Public, Zero>,
     alpha: &Scalar<Secret, NonZero>,
-    challenge: &Scalar<Secret, NonZero>,
-    tweak: &Scalar<Secret, NonZero>,
 ) -> Scalar<Public, Zero> {
-    s!(blinded_signature + alpha + challenge * tweak).public()
+    s!(blinded_signature + alpha).public()
 }
 
 /// The tweaks used for blinding the nonce, public key, and challenge
@@ -191,8 +173,6 @@ pub struct BlindingTweaks {
     pub alpha: Scalar,
     /// tweak value beta
     pub beta: Scalar,
-    /// tweak value t
-    pub t: Scalar,
 }
 
 impl BlindingTweaks {
@@ -201,7 +181,6 @@ impl BlindingTweaks {
         BlindingTweaks {
             alpha: Scalar::random(rng),
             beta: Scalar::random(rng),
-            t: Scalar::random(rng),
         }
     }
 }
@@ -209,8 +188,6 @@ impl BlindingTweaks {
 /// Blinder holds a blinded signature context which is later used to unblind the signature
 #[derive(Debug)]
 pub struct Blinder {
-    /// blinded public key X' = X + t*G
-    pub tweaked_pubkey: Point,
     /// tweaked public nonce R' = R + alpha*G + beta * X
     pub blinded_nonce: Point,
     /// tweaked challenge c' = c + beta
@@ -239,18 +216,16 @@ impl Blinder {
     ) -> Self {
         loop {
             let mut blinding_tweaks = BlindingTweaks::new(rng);
-            let (tweaked_pubkey, blinded_nonce, blinded_challenge, nonce_needs_negation) =
-                create_blinded_values(
-                    pubnonce,
-                    public_key,
-                    message,
-                    schnorr.clone(),
-                    &mut blinding_tweaks,
-                );
+            let (blinded_nonce, blinded_challenge, nonce_needs_negation) = create_blinded_values(
+                pubnonce,
+                public_key,
+                message,
+                schnorr.clone(),
+                &mut blinding_tweaks,
+            );
 
             if !nonce_needs_negation {
                 break Blinder {
-                    tweaked_pubkey,
                     blinded_nonce,
                     challenge: blinded_challenge,
                     blinding_tweaks,
@@ -263,14 +238,9 @@ impl Blinder {
     ///
     /// # Returns
     ///
-    /// A schnorr signature that should be valid under the tweaked public key and blinded nonce
+    /// A schnorr signature that should be valid under the public key and blinded nonce
     pub fn unblind(&self, blinded_signature: Scalar<Public, Zero>) -> Signature {
-        let sig = unblind_signature(
-            blinded_signature,
-            &self.blinding_tweaks.alpha,
-            &self.challenge,
-            &self.blinding_tweaks.t,
-        );
+        let sig = unblind_signature(blinded_signature, &self.blinding_tweaks.alpha);
         Signature {
             s: sig,
             R: self.blinded_nonce.into_point_with_even_y().0,
@@ -419,17 +389,15 @@ mod test {
         dbg!(&session_signatures);
 
         // We recieve an option of the blinded signature from the signer, and unblind it revealing
-        // an uncorrelated signature for the message that is valid under the tweaked pubkey.
+        // an uncorrelated signature for the message that is valid under the pubkey.
         // The server has also not seen the nonce for this signature.
         for (blind_session, blind_signature) in blind_sessions.iter().zip(session_signatures) {
             match blind_signature {
                 Some(blind_signature) => {
                     let unblinded_signature = blind_session.unblind(blind_signature);
 
-                    // Validate the unblinded signature against the tweaked public key
-                    let (verification_pubkey, _) =
-                        blind_session.tweaked_pubkey.into_point_with_even_y();
-                    assert!(schnorr.verify(&verification_pubkey, message, &unblinded_signature));
+                    // Validate the unblinded signature against the public key
+                    assert!(schnorr.verify(&public_key, message, &unblinded_signature));
                 }
                 None => {}
             }
@@ -470,8 +438,7 @@ mod test {
 
             let unblinded_signature = blind_session.unblind(blind_signature);
 
-            let (verification_pubkey, _) = blind_session.tweaked_pubkey.into_point_with_even_y();
-            assert!(schnorr.verify(&verification_pubkey, message, &unblinded_signature));
+            assert!(schnorr.verify(&public_key, message, &unblinded_signature));
         }
     }
 }
