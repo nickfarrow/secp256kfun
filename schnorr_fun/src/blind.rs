@@ -133,7 +133,7 @@ pub fn create_blinded_values<'a, H: Digest<OutputSize = U32> + Clone, NG>(
 ) -> (Point, Point, Scalar, bool) {
     let tweaked_pubkey = g!(public_key + blinding_tweaks.t * G)
         .normalize()
-        .mark::<NonZero>()
+        .non_zero()
         .expect("added tweak is random");
 
     let tweaked_pubkey_needs_negation = !tweaked_pubkey.is_y_even();
@@ -142,19 +142,22 @@ pub fn create_blinded_values<'a, H: Digest<OutputSize = U32> + Clone, NG>(
     let blinded_nonce =
         g!(nonce + blinding_tweaks.alpha * G + blinding_tweaks.beta * tweaked_pubkey)
             .normalize()
-            .mark::<NonZero>()
+            .non_zero()
             .expect("added tweak is random");
 
     // we're actually going to discard these tweaks if the blinded nonce does need negation,
     // if we assert that we sample an even blinded nonce, then we have less to communicate
-    let blinded_nonce_needs_negation = !blinded_nonce.is_y_even();
+    let (xonly_blinded_nonce, blinded_nonce_needs_negation) =
+        blinded_nonce.into_point_with_even_y();
+
+    let (xonly_tweaked_pubkey, _) = tweaked_pubkey.into_point_with_even_y();
 
     let mut blinded_challenge =
         s!(
-            { schnorr.challenge(blinded_nonce.to_xonly(), tweaked_pubkey.to_xonly(), message,) }
+            { schnorr.challenge(&xonly_blinded_nonce, &xonly_tweaked_pubkey, message,) }
                 + blinding_tweaks.beta
         )
-        .mark::<NonZero>()
+        .non_zero()
         .expect("added tweak is random");
     blinded_challenge.conditional_negate(tweaked_pubkey_needs_negation);
 
@@ -177,7 +180,7 @@ pub fn unblind_signature(
     challenge: &Scalar<Secret, NonZero>,
     tweak: &Scalar<Secret, NonZero>,
 ) -> Scalar<Public, Zero> {
-    s!(blinded_signature + alpha + challenge * tweak).mark::<Public>()
+    s!(blinded_signature + alpha + challenge * tweak).public()
 }
 
 /// The tweaks used for blinding the nonce, public key, and challenge
@@ -270,7 +273,7 @@ impl Blinder {
         );
         Signature {
             s: sig,
-            R: self.blinded_nonce.to_xonly(),
+            R: self.blinded_nonce.into_point_with_even_y().0,
         }
     }
 
@@ -306,7 +309,7 @@ pub fn blind_sign(
     nonce: Scalar,
     sig_request: SignatureRequest,
 ) -> Scalar<Public, Zero> {
-    let sig = s!({ nonce } + sig_request.blind_challenge * secret).mark::<Public>();
+    let sig = s!({ nonce } + sig_request.blind_challenge * secret).public();
     sig
 }
 
