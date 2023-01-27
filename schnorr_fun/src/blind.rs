@@ -2,21 +2,29 @@
 //!
 //! Produce a schnorr signature where the signer does not know what they have signed.
 //!
-//! A blind signing server (with public key `X = x*G`) sends a public nonce (`R = k*G`) to the user who wants a message signed.
-//! The user generates two random scalars (alpha, beta) and uses them to blinds this nonce (`R' = R + alpha*G + beta*X`).
+//! ⚠ When running multiple sessions in parallel a signing server must use `blind_sign_multiple`
+//! which will randomly fail on 1 out of N signing requests. This is to prevent [Wagner attack]s,
+//! where parallel signing sessions can allow for a forgery.
 //!
-//! A challenge for the message (`M`) is created using these blinded values (`c = H[R'|X|M]`), and this challenge is then blinded
-//! also (`c' = c + beta`). The blinded challenge is sent to the signing server and is signed (`s = k + c'*x`).
+//! # Summary
 //!
-//! Note that when running multiple sessions in parallel a signing server should use `safe_blind_sign_multiple` which will randomly
-//! fail on 1 out of N signing requests. This is to prevent Wagner attacks where parallel signing sessions allow for a forgery.
+//! A blind signing server (with public key `X = x*G`) sends a public nonce (`R = k*G`) to a user
+//! who wants to have a message signed. This user generates two random scalars (alpha, beta) and
+//! uses them to blinds the signing server's nonce (`R' = R + alpha*G + beta*X`).
+//!
+//! The user then creates challenge for some message (`M`) they want signed, using these blinding
+//! values (`c = H[R'|X|M]`), and then this challenge is then blinded itself also (`c' = c + beta`).
+//! The blinded challenge is sent to the signing server who then signs it (`s = k + c'*x`).
 //!
 //! Once the user recieves the blinded signature, they can unblind it (`s' = s + alpha).
 //! The unblinded signature (`s', R'`) is a valid schnorr signature under the public key (`X`).
-//! The signer can not correlate this signature-nonce pair even if they know the public key, signature, message, and nonce.
+//! The signer can not correlate this signature-nonce pair even if they know the public key,
+//! signature, message, and nonce.
 //!
-//! This implementation mostly follows this [SuredBits article] and [Blind Schnorr Signatures in the Algebraic Group Model].
+//! This implementation was helped a lot by this [SuredBits article] and follows security fixes from
+//! [Blind Schnorr Signatures in the Algebraic Group Model].
 //!
+//! [Wagner attack]: <https://www.iacr.org/archive/crypto2002/24420288/24420288.pdf>
 //! [SuredBits article]: <https://suredbits.com/schnorr-applications-blind-signatures/>
 //! [Blind Schnorr Signatures in the Algebraic Group Model]: <https://eprint.iacr.org/2019/877.pdf>
 //!
@@ -81,7 +89,7 @@
 //!
 //! // The blind signer server signs under their secret key and with the corresponding nonce for each
 //! // respective signature request
-//! let session_signatures = blind::safe_blind_sign_multiple(
+//! let session_signatures = blind::blind_sign_multiple(
 //!     &secret,
 //!     nonces,
 //!     &mut signature_requests,
@@ -287,7 +295,7 @@ pub fn blind_sign(
 ///
 /// Disconnects 1 out of N times if there is N > 1 SignatureRequests supplied.
 /// Does not disconnect if only supplied one SignatureRequest
-pub fn safe_blind_sign_multiple<R: RngCore + CryptoRng>(
+pub fn blind_sign_multiple<R: RngCore + CryptoRng>(
     secret: &Scalar,
     nonces: Vec<Scalar>,
     sig_requests: &mut Vec<SignatureRequest>,
@@ -380,7 +388,7 @@ mod test {
         // The blind signer server signs under their secret key and with the corresponding nonce for each
         // respective signature request
         assert_eq!(signature_requests.len(), n_sessions);
-        let session_signatures = safe_blind_sign_multiple(
+        let session_signatures = blind_sign_multiple(
             &secret,
             nonces,
             &mut signature_requests,
