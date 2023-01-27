@@ -30,7 +30,7 @@
 //!
 //! # Synopsis
 //! ```
-//! use schnorr_fun::{blind, Blinder, Message, Schnorr, nonce};
+//! use schnorr_fun::{blind, Message, Schnorr, nonce};
 //! use secp256kfun::{g, marker::Public, Scalar, G, derive_nonce, nonce::Deterministic};
 //! use rand::rngs::ThreadRng;
 //! use sha2::Sha256;
@@ -70,7 +70,7 @@
 //! let blind_sessions: Vec<_> = pub_nonces
 //!     .iter()
 //!     .map(|pub_nonce| {
-//!         Blinder::blind(
+//!         blind::Blinder::blind(
 //!             *pub_nonce,
 //!             public_key,
 //!             message,
