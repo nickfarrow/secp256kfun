@@ -1190,4 +1190,153 @@ mod test {
 
         assert_eq!(session.agg_nonce, *G);
     }
+
+    #[test]
+    fn add_new_signer() {
+        use rand_chacha::ChaCha20Rng;
+
+        let frost = new_with_deterministic_nonces::<Sha256>();
+        let mut rng = rand::thread_rng();
+        let threshold = 2;
+        let party1_secret_poly = generate_scalar_poly(threshold, &mut rng);
+        let party2_secret_poly = generate_scalar_poly(threshold, &mut rng);
+        let party3_secret_poly = generate_scalar_poly(threshold, &mut rng);
+        let party1_public_poly = to_point_poly(&party1_secret_poly);
+        let party2_public_poly = to_point_poly(&party2_secret_poly);
+        let party3_public_poly = to_point_poly(&party3_secret_poly);
+
+        let party_index1 = s!(1).public();
+        let party_index2 = s!(2).public();
+        let party_index3 = s!(3).public();
+        let party_index4 = s!(4).public(); // We will add them later!
+
+        let public_polys = BTreeMap::from_iter([
+            (party_index1, party1_public_poly),
+            (party_index2, party2_public_poly),
+            (party_index3, party3_public_poly),
+        ]);
+        let keygen = frost
+            .new_keygen(public_polys)
+            .expect("something wrong with what was provided by other parties");
+
+        let keygen_id = frost.keygen_id(&keygen);
+        let pop_message = Message::raw(&keygen_id);
+        let (party1_shares, party1_pop) =
+            frost.create_shares_and_pop(&keygen, &party1_secret_poly, pop_message);
+        let (party2_shares, party2_pop) =
+            frost.create_shares_and_pop(&keygen, &party2_secret_poly, pop_message);
+        let (party3_shares, party3_pop) =
+            frost.create_shares_and_pop(&keygen, &party3_secret_poly, pop_message);
+
+        let shares_and_frost_keys = [party_index1, party_index2, party_index3].map(|index| {
+            let collected_shares = BTreeMap::from_iter([
+                (
+                    party_index1,
+                    (
+                        party1_shares.get(&index).unwrap().clone(),
+                        party1_pop.clone(),
+                    ),
+                ),
+                (
+                    party_index2,
+                    (
+                        party2_shares.get(&index).unwrap().clone(),
+                        party2_pop.clone(),
+                    ),
+                ),
+                (
+                    party_index3,
+                    (
+                        party3_shares.get(&index).unwrap().clone(),
+                        party3_pop.clone(),
+                    ),
+                ),
+            ]);
+            let (secret_share, frost_key) = frost
+                .finish_keygen(keygen.clone(), index, collected_shares, pop_message)
+                .expect("something was wrong with the shares we received");
+            (secret_share, frost_key)
+        });
+
+        let secret_shares = shares_and_frost_keys
+            .clone()
+            .into_iter()
+            .enumerate()
+            .map(|(index, (share, _frost_key))| (index, share))
+            .collect::<BTreeMap<_, _>>();
+        let frost_key = shares_and_frost_keys[0].1.clone().into_xonly_key();
+
+        let secret_share1 = secret_shares.get(&0).unwrap();
+        let secret_share2 = secret_shares.get(&1).unwrap();
+        let secret_share3 = secret_shares.get(&2).unwrap();
+
+        let lambda1: Scalar<Public, Zero> =
+            eval_lagrange_basis_polynomial(s!(3), party_index1, [party_index2].into_iter());
+        let lambda2: Scalar<Public, Zero> =
+            eval_lagrange_basis_polynomial(s!(3), party_index2, [party_index1].into_iter());
+
+        // Securely share these secret fragments using MPC enrollment
+        let secret_fragment1 = s!(lambda1 * secret_share1);
+        let secret_fragment2 = s!(lambda2 * secret_share2);
+
+        let recalculated_secret_share = s!(secret_fragment1 + secret_fragment2);
+        assert_eq!(recalculated_secret_share, *secret_share3);
+
+        // We can add a 4th signer:
+        let lambda1: Scalar<Public, Zero> =
+            eval_lagrange_basis_polynomial(s!(4), party_index1, [party_index2].into_iter());
+        let lambda2: Scalar<Public, Zero> =
+            eval_lagrange_basis_polynomial(s!(4), party_index2, [party_index1].into_iter());
+
+        let secret_fragment1 = s!(lambda1 * secret_share1);
+        let secret_fragment2 = s!(lambda2 * secret_share2);
+
+        let secret_share4 = s!(secret_fragment1 + secret_fragment2);
+
+        // Sign with 4th signer:
+        let sid = b"frost-enroll-signer-test".as_slice();
+        let message = Message::plain("test", b"new signer, who dis?");
+
+        let nonce_party2 = frost.gen_nonce::<ChaCha20Rng>(&mut frost.seed_nonce_rng(
+            &frost_key,
+            &secret_share2,
+            sid,
+        ));
+        let nonce_party4 = frost.gen_nonce::<ChaCha20Rng>(&mut frost.seed_nonce_rng(
+            &frost_key,
+            &secret_share4,
+            sid,
+        ));
+
+        let mut public_nonces = BTreeMap::new();
+
+        public_nonces.insert(party_index2, nonce_party2.public());
+        public_nonces.insert(party_index4, nonce_party4.public());
+
+        dbg!(&public_nonces);
+
+        let signing_session = frost.start_sign_session(&frost_key, public_nonces, message);
+
+        let sig_party2 = frost.sign(
+            &frost_key,
+            &signing_session,
+            party_index2,
+            &secret_share2,
+            nonce_party2,
+        );
+        let sig_party4 = frost.sign(
+            &frost_key,
+            &signing_session,
+            party_index4,
+            &secret_share4,
+            nonce_party4,
+        );
+
+        let combined_sig = frost
+            .combine_signature_shares(&frost_key, &signing_session, vec![sig_party2, sig_party4]);
+
+        assert!(frost
+            .schnorr
+            .verify(&frost_key.public_key(), message, &combined_sig));
+    }
 }
