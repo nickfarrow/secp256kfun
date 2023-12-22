@@ -1,16 +1,13 @@
-#![cfg(feature = "frost_backup")]
+#![cfg(feature = "share_backup")]
 use core::str::FromStr;
-use schnorr_fun::{
-    frost::{self, scalar_poly_eval},
-    frost_backup::{
-        decode_backup, encode_backup, interpolate_point_polynomial, polynomial_identifier,
-        reconstruct_shared_secret,
-    },
+use schnorr_fun::share_backup::{
+    decode_backup, encode_backup, interpolate_point_polynomial, polynomial_identifier,
+    reconstruct_shared_secret,
 };
-use secp256kfun::{g, marker::Secret, s, Scalar, G};
+use secp256kfun::{g, marker::Secret, poly, s, Scalar, G};
 
 #[test]
-fn frost_backup_short() {
+fn share_backup_short() {
     let polynomial = vec![g!(1 * G).normalize()];
     let threshold = polynomial.len();
     let secret_share = Scalar::<Secret>::from_str(
@@ -19,11 +16,11 @@ fn frost_backup_short() {
     .unwrap();
     let share_index = s!(7);
 
-    let frost_backup = encode_backup::<sha2::Sha256>(&polynomial, &secret_share, &share_index);
-    dbg!(&frost_backup);
+    let share_backup = encode_backup::<sha2::Sha256>(&polynomial, &secret_share, &share_index);
+    dbg!(&share_backup);
 
     let (decoded_threshold, decoded_identifier, decoded_secret_share, decoded_share_index) =
-        decode_backup(frost_backup).unwrap();
+        decode_backup(share_backup).unwrap();
 
     assert_eq!(threshold, decoded_threshold);
     assert_eq!(
@@ -35,7 +32,7 @@ fn frost_backup_short() {
 }
 
 #[test]
-fn frost_backup_long() {
+fn share_backup_long() {
     let polynomial = vec![
         g!(1 * G).normalize(),
         g!(2 * G).normalize(),
@@ -51,11 +48,11 @@ fn frost_backup_long() {
     )
     .unwrap();
 
-    let frost_backup = encode_backup::<sha2::Sha256>(&polynomial, &secret_share, &share_index);
-    dbg!(&frost_backup);
+    let share_backup = encode_backup::<sha2::Sha256>(&polynomial, &secret_share, &share_index);
+    dbg!(&share_backup);
 
     let (decoded_threshold, decoded_identifier, decoded_secret_share, decoded_share_index) =
-        decode_backup(frost_backup).unwrap();
+        decode_backup(share_backup).unwrap();
 
     assert_eq!(threshold, decoded_threshold);
     assert_eq!(
@@ -74,7 +71,7 @@ fn test_recover_public_poly() {
         .clone()
         .into_iter()
         .map(|index| {
-            frost::point_poly_eval(&poly, index.public())
+            poly::point_poly_eval(&poly, index.public())
                 .normalize()
                 .non_zero()
                 .unwrap()
@@ -88,13 +85,12 @@ fn test_recover_public_poly() {
 #[test]
 fn test_reconstruct_shared_secret() {
     let scalar_poly = vec![s!(42), s!(53), s!(64)];
-    // let point_poly = frost::to_point_poly(&scalar_poly);
     let indexes = vec![s!(1), s!(2), s!(3)];
 
     let secret_shares: Vec<_> = indexes
         .clone()
         .into_iter()
-        .map(|index| scalar_poly_eval(&scalar_poly, index))
+        .map(|index| poly::scalar_poly_eval(&scalar_poly, index))
         .collect();
 
     let reconstructed_secret = reconstruct_shared_secret(indexes, secret_shares);

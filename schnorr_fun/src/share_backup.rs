@@ -54,10 +54,8 @@ use secp256kfun::{
     g,
     hash::HashAdd,
     marker::{PointType, Public, Secrecy, Zero, ZeroChoice},
-    s, Point, Scalar,
+    poly, s, Point, Scalar,
 };
-
-use crate::frost;
 
 /// An error encountered when encoding a Frostsnap backup.
 #[derive(Debug, Copy, Clone)]
@@ -270,7 +268,7 @@ pub fn reconstruct_shared_secret(
     let coefficients: Vec<_> = indexes
         .iter()
         .map(|my_index| {
-            frost::lagrange_lambda(
+            poly::lagrange_lambda(
                 my_index.clone(),
                 indexes.clone().into_iter().filter(|j| j != my_index),
             )
