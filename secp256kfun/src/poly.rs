@@ -178,6 +178,8 @@ pub fn reconstruct_shared_secret(
 
 #[cfg(test)]
 mod test {
+    use crate::marker::Normal;
+
     use super::*;
 
     #[test]
@@ -192,5 +194,68 @@ mod test {
             res,
             lagrange_lambda(s!(2), [s!(1), s!(4), s!(5)].into_iter())
         );
+    }
+
+    #[test]
+    fn test_recover_public_poly() {
+        let poly = vec![g!(1 * G), g!(2 * G), g!(3 * G)];
+        let indexes = vec![s!(1), s!(3), s!(2)];
+        let evaluations = indexes
+            .clone()
+            .into_iter()
+            .map(|index| {
+                point_poly_eval(&poly, index.public())
+                    .normalize()
+                    .non_zero()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let interpolation = interpolate_point_polynomial(indexes, evaluations);
+        assert_eq!(interpolation, poly)
+    }
+
+    #[test]
+    fn test_recover_overdetermined_poly() {
+        let poly = vec![g!(1 * G), g!(2 * G), g!(3 * G)];
+        let indexes = vec![s!(1), s!(2), s!(3), s!(4), s!(5)];
+        let evaluations = indexes
+            .clone()
+            .into_iter()
+            .map(|index| {
+                point_poly_eval(&poly, index.public())
+                    .normalize()
+                    .non_zero()
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let interpolation = interpolate_point_polynomial(indexes.clone(), evaluations);
+
+        let (interpolated_coeffs, zero_coeffs) = interpolation.split_at(poly.len());
+        let n_extra_points = indexes.len() - poly.len();
+        assert_eq!(
+            (0..n_extra_points)
+                .into_iter()
+                .map(|_| Point::<Normal, Public, Zero>::zero().public().normalize())
+                .collect::<Vec<_>>(),
+            zero_coeffs.to_vec()
+        );
+        assert_eq!(interpolated_coeffs, poly);
+    }
+
+    #[test]
+    fn test_reconstruct_shared_secret() {
+        let scalar_poly = vec![s!(42), s!(53), s!(64)];
+        let indexes = vec![s!(1), s!(2), s!(3)];
+
+        let secret_shares: Vec<_> = indexes
+            .clone()
+            .into_iter()
+            .map(|index| scalar_poly_eval(&scalar_poly, index))
+            .collect();
+
+        let reconstructed_secret = reconstruct_shared_secret(indexes, secret_shares);
+        assert_eq!(scalar_poly[0], reconstructed_secret);
     }
 }

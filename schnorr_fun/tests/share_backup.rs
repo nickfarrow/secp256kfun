@@ -1,10 +1,7 @@
 #![cfg(feature = "share_backup")]
 use core::str::FromStr;
-use schnorr_fun::share_backup::{
-    decode_backup, encode_backup, interpolate_point_polynomial, polynomial_identifier,
-    reconstruct_shared_secret,
-};
-use secp256kfun::{g, marker::Secret, poly, s, Scalar, G};
+use schnorr_fun::share_backup::{decode_backup, encode_backup, polynomial_identifier};
+use secp256kfun::{g, marker::Secret, s, Scalar, G};
 
 #[test]
 fn share_backup_short() {
@@ -61,38 +58,4 @@ fn share_backup_long() {
     );
     assert_eq!(secret_share, decoded_secret_share);
     assert_eq!(share_index, decoded_share_index);
-}
-
-#[test]
-fn test_recover_public_poly() {
-    let poly = vec![g!(1 * G), g!(2 * G), g!(3 * G)];
-    let indexes = vec![s!(5), s!(3), s!(2)];
-    let evaluations = indexes
-        .clone()
-        .into_iter()
-        .map(|index| {
-            poly::point_poly_eval(&poly, index.public())
-                .normalize()
-                .non_zero()
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
-
-    let interpolation = interpolate_point_polynomial(indexes, evaluations);
-    assert_eq!(interpolation, poly)
-}
-
-#[test]
-fn test_reconstruct_shared_secret() {
-    let scalar_poly = vec![s!(42), s!(53), s!(64)];
-    let indexes = vec![s!(1), s!(2), s!(3)];
-
-    let secret_shares: Vec<_> = indexes
-        .clone()
-        .into_iter()
-        .map(|index| poly::scalar_poly_eval(&scalar_poly, index))
-        .collect();
-
-    let reconstructed_secret = reconstruct_shared_secret(indexes, secret_shares);
-    assert_eq!(scalar_poly[0], reconstructed_secret);
 }
