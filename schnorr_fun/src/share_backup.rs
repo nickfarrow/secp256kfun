@@ -230,9 +230,9 @@ pub fn decode_backup(
 ///
 /// A vector with a tail of zero coefficients means the interpolation was overdetermined.
 pub fn interpolate_point_polynomial(
-    indexes: Vec<Scalar<impl Secrecy, impl ZeroChoice>>,
-    points: Vec<Point>,
+    points_at_indexes: Vec<(Scalar<impl Secrecy, impl ZeroChoice>, Vec<Point>)>,
 ) -> Vec<Point<impl PointType, Public, Zero>> {
+    let (indexes, points): (Vec<_>, Vec<_>) = points_at_indexes.into_iter().unzip();
     // Get each lagrange basis polynomial from the product of coefficients:
     //      l_j(x) = Product[ (x-x_m)/(x_j-x_m), j!=m]
     // Or
