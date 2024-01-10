@@ -73,28 +73,19 @@ pub fn lagrange_lambda(
     x_ms: impl Iterator<Item = Scalar<impl Secrecy>>,
 ) -> Scalar<Public> {
     x_ms.fold(Scalar::one(), |acc, x_m| {
-        let denominator = s!(x_m - x_j)
-            .non_zero()
-            .expect("indexes must be unique")
-            .invert();
-        s!(acc * x_m * denominator).public()
+        let denominator = s!(x_m - x_j).non_zero().expect("indexes must be unique");
+        s!(acc * x_m / denominator).public()
     })
 }
-
-/// Find the coefficients of the polynomial that interpolates a set of points at unique indexes.
+/// Get each lagrange basis polynomial a set of scalar indices.
 ///
-/// Panics if the indexes are not unique.
-///
-/// A vector with a tail of zero coefficients means the interpolation was overdetermined.
-pub fn interpolate_point_polynomial(
-    points_at_indexes: Vec<(Scalar<impl Secrecy, impl ZeroChoice>, Point)>,
-) -> Vec<Point<impl PointType, Public, Zero>> {
-    let (indexes, points): (Vec<_>, Vec<_>) = points_at_indexes.into_iter().unzip();
-    // Get each lagrange basis polynomial from the product of coefficients:
-    //      l_j(x) = Product[ (x-x_m)/(x_j-x_m), j!=m]
+/// The nth polynomial at the nth index takes on the value of 1 (unit).
+fn unit_basis_polys(indexes: &[Scalar<Public, impl ZeroChoice>]) -> Vec<Vec<Scalar<Public, Zero>>> {
+    // Calculated from the product of these indices coefficients:
+    //      l_j(x) = Product[ (x-x_m)/(x_j-x_m), j!=m ]
     // Or
     //      l_j(x) = Product[ a_m*x + b_m, j!=m], where a_m = 1/(x_j-x_m) and b_m = -x_m*a_m.
-    let basis_polynomials: Vec<_> = indexes
+    indexes
         .clone()
         .into_iter()
         .enumerate()
@@ -103,14 +94,13 @@ pub fn interpolate_point_polynomial(
             for (_, x_m) in indexes.iter().enumerate().filter(|(m, _)| *m != j) {
                 let a_m = s!(x_j - x_m)
                     .non_zero()
-                    .expect("points must lie at unique indexes to interpolate")
-                    .invert();
-                let b_m = s!(-x_m * a_m).mark_zero();
+                    .expect("points must lie at unique indexes to interpolate");
+                let b_m = s!(-x_m / a_m).mark_zero();
 
                 // Multiply out the product. Beginning with the first two coefficients
                 // we then take the next set (b_1, a_1), multiply through, and collect terms.
                 if coefficients.is_empty() {
-                    coefficients.extend([b_m.mark_zero(), a_m.mark_zero()])
+                    coefficients.extend([b_m.mark_zero().public(), a_m.mark_zero().public()])
                 } else {
                     let mut updated_coefficients = coefficients.clone();
                     for i in 0..coefficients.len() {
@@ -120,16 +110,29 @@ pub fn interpolate_point_polynomial(
                             s!(0)
                         };
                         let same_degree = s!({ &coefficients[i] } * b_m);
-                        updated_coefficients[i] = s!(same_degree + bumping_up_degree);
+                        updated_coefficients[i] = s!(same_degree + bumping_up_degree).public();
                     }
                     let higher_degree = s!({ coefficients.last().unwrap() } * a_m);
-                    updated_coefficients.push(higher_degree);
+                    updated_coefficients.push(higher_degree.public());
                     coefficients = updated_coefficients;
                 }
             }
             coefficients
         })
-        .collect();
+        .collect()
+}
+
+/// Find the coefficients of the polynomial that interpolates a set of points at unique indexes.
+///
+/// Panics if the indexes are not unique.
+///
+/// A vector with a tail of zero coefficients means the interpolation was overdetermined.
+pub fn interpolate_point_polynomial(
+    points_at_indexes: Vec<(Scalar<Public, impl ZeroChoice>, Point)>,
+) -> Vec<Point<impl PointType, Public, Zero>> {
+    let (indexes, points): (Vec<_>, Vec<_>) = points_at_indexes.into_iter().unzip();
+
+    let basis_polynomials: Vec<_> = unit_basis_polys(indexes.as_slice());
 
     let interpolating_basis: Vec<_> = basis_polynomials
         .iter()
@@ -206,12 +209,7 @@ mod test {
 
     #[test]
     fn test_lagrange_lambda() {
-        let res = s!((1 * 4 * 5) * {
-            s!((1 - 2) * (4 - 2) * (5 - 2))
-                .non_zero()
-                .expect("")
-                .invert()
-        });
+        let res = s!((1 * 4 * 5) / { s!((1 - 2) * (4 - 2) * (5 - 2)).non_zero().unwrap() });
         assert_eq!(
             res,
             lagrange_lambda(s!(2), [s!(1), s!(4), s!(5)].into_iter())
@@ -221,7 +219,7 @@ mod test {
     #[test]
     fn test_recover_public_poly() {
         let poly = vec![g!(1 * G), g!(2 * G), g!(3 * G)];
-        let indexes = vec![s!(1), s!(3), s!(2)];
+        let indexes = vec![s!(1).public(), s!(3).public(), s!(2).public()];
         let points = indexes
             .clone()
             .into_iter()
@@ -243,7 +241,13 @@ mod test {
     #[test]
     fn test_recover_overdetermined_poly() {
         let poly = vec![g!(1 * G), g!(2 * G), g!(3 * G)];
-        let indexes = vec![s!(1), s!(2), s!(3), s!(4), s!(5)];
+        let indexes = vec![
+            s!(1).public(),
+            s!(2).public(),
+            s!(3).public(),
+            s!(4).public(),
+            s!(5).public(),
+        ];
         let points = indexes
             .clone()
             .into_iter()
