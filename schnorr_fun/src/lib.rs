@@ -34,4 +34,4 @@ pub use schnorr::*;
 mod message;
 pub use message::*;
 
-mod libsecp_compat;
+// `mod libsecp_compat;` is removed on this branch -- see secp256kfun/Cargo.toml.

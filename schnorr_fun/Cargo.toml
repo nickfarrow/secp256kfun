@@ -31,11 +31,8 @@ criterion = "0.4"
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
 
-[[bench]]
-name = "bench_schnorr"
-harness = false
-required-features = ["libsecp_compat"]
-
+# The bench and the `libsecp_compat*` features are removed on this branch, following
+# secp256kfun -- see the note in secp256kfun/Cargo.toml.
 
 [features]
 default = ["std"]
@@ -43,11 +40,6 @@ alloc = ["secp256kfun/alloc"]
 std = ["alloc", "secp256kfun/std", "vrf_fun?/std"]
 bincode = [ "dep:bincode", "secp256kfun/bincode", "vrf_fun?/bincode"]
 serde = ["secp256kfun/serde", "vrf_fun?/serde"]
-libsecp_compat = ["libsecp_compat_0_30", "secp256kfun/libsecp_compat"]
-libsecp_compat_0_27 = ["secp256kfun/libsecp_compat_0_27"]
-libsecp_compat_0_28 = ["secp256kfun/libsecp_compat_0_28"]
-libsecp_compat_0_29 = ["secp256kfun/libsecp_compat_0_29"]
-libsecp_compat_0_30 = ["secp256kfun/libsecp_compat_0_30"]
 proptest = ["secp256kfun/proptest"]
 share_backup = ["dep:bech32"]
 vrf_cert_keygen = ["dep:vrf_fun"]

@@ -26,19 +26,11 @@ lazy_static = "1.4"
 sha2 = "0.10"
 serde_json = "1"
 
-[[bench]]
-name = "bench_ecdsa"
-harness = false
-required-features = ["libsecp_compat"]
-
+# The bench and the `libsecp_compat*` features are removed on this branch, following
+# secp256kfun -- see the note in secp256kfun/Cargo.toml.
 
 [features]
 default = ["std"]
-libsecp_compat = ["libsecp_compat_0_30", "secp256kfun/libsecp_compat"]
-libsecp_compat_0_27 = ["secp256kfun/libsecp_compat_0_27"]
-libsecp_compat_0_28 = ["secp256kfun/libsecp_compat_0_28"]
-libsecp_compat_0_29 = ["secp256kfun/libsecp_compat_0_29"]
-libsecp_compat_0_30 = ["secp256kfun/libsecp_compat_0_30"]
 std = ["alloc"]
 alloc = ["secp256kfun/alloc", "sigma_fun?/alloc" ]
 serde = ["secp256kfun/serde","sigma_fun?/serde"]

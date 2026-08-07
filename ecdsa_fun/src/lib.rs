@@ -10,7 +10,7 @@ extern crate alloc;
 #[macro_use]
 extern crate std;
 
-mod libsecp_compat;
+// `mod libsecp_compat;` is removed on this branch -- see secp256kfun/Cargo.toml.
 
 use fun::Tag;
 

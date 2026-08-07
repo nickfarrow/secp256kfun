@@ -55,7 +55,8 @@ pub use bincode;
 /// these are helpers so we hide them. Actual g! macro is defined in macros.rs
 pub use secp256kfun_arithmetic_macros as arithmetic_macros;
 
-mod libsecp_compat;
+// `mod libsecp_compat;` is removed on this branch -- see the note in Cargo.toml.
+// The source file is kept so that restoring it is a one-line change.
 #[cfg(any(feature = "proptest", test))]
 mod proptest_impls;
 #[cfg(feature = "proptest")]
@@ -80,25 +81,6 @@ pub static G: &Point<marker::BasePoint, marker::Public, marker::NonZero> =
 
 // it is applied to nonce generators too so export at root
 pub use hash::Tag;
-
-#[cfg(feature = "libsecp_compat_0_27")]
-/// Re-export `secp256k1`
-pub extern crate secp256k1_0_27;
-
-#[cfg(feature = "libsecp_compat_0_28")]
-/// Re-export `secp256k1`
-pub extern crate secp256k1_0_28;
-
-#[cfg(feature = "libsecp_compat_0_29")]
-/// Re-export `secp256k1`
-pub extern crate secp256k1_0_29;
-
-#[cfg(feature = "libsecp_compat_0_30")]
-/// Re-export `secp256k1`
-pub extern crate secp256k1_0_30;
-
-#[cfg(feature = "libsecp_compat")]
-pub use secp256k1_0_30 as secp256k1;
 
 /// Convenience module to import the most frequently used tools
 pub mod prelude {
