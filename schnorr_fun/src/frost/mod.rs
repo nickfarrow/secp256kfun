@@ -450,4 +450,74 @@ mod test {
 
         assert_eq!(session.final_nonce(), *G);
     }
+
+    #[test]
+    fn combined_signature_is_verified_when_agg_nonce_is_zero() {
+        let frost = new_with_deterministic_nonces::<Sha256>();
+        let mut rng = rand::thread_rng();
+        let (shared_key, secret_shares) =
+            simplepedpop::simulate_keygen(&frost.schnorr, 2, 3, 3, &mut rng);
+        let shared_key = shared_key.into_xonly();
+        let message = Message::new("test", b"hello");
+
+        let mut nonces = vec![
+            NonceKeyPair::random(&mut rng),
+            NonceKeyPair::random(&mut rng),
+        ];
+        // Making the aggregate nonce zero with shares that all verify needs every party's secret
+        // nonce, so no single party can do it. Playing every party here reaches a state that
+        // per-share verification can't catch, leaving only the combined signature check.
+        let [cancelling_r1, cancelling_r2] = [0, 1].map(|i| {
+            let [a, b] = [&nonces[0].secret().0[i], &nonces[1].secret().0[i]];
+            s!(-(a + b))
+                .non_zero()
+                .expect("computationally unreachable")
+        });
+        nonces.push(NonceKeyPair::from_secret(binonce::SecretNonce([
+            cancelling_r1,
+            cancelling_r2,
+        ])));
+
+        let session = frost.coordinator_sign_session(
+            &shared_key,
+            secret_shares
+                .iter()
+                .zip(&nonces)
+                .map(|(secret_share, nonce)| (secret_share.index(), nonce.public()))
+                .collect(),
+            message,
+        );
+        assert_eq!(session.agg_binonce(), binonce::Nonce([Point::zero(); 2]));
+
+        let party_session = frost.party_sign_session(
+            shared_key.public_key(),
+            session.parties(),
+            session.agg_binonce(),
+            message,
+        );
+        let signature_shares: BTreeMap<_, _> = secret_shares
+            .iter()
+            .zip(&nonces)
+            .map(|(secret_share, nonce)| {
+                let secret_share = secret_share.into_xonly();
+                let signature_share = party_session.sign(&secret_share, nonce);
+                assert_eq!(
+                    session
+                        .verify_signature_share(secret_share.verification_share(), signature_share),
+                    Ok(())
+                );
+                (secret_share.index(), signature_share)
+            })
+            .collect();
+
+        assert!(!frost.schnorr.verify(
+            &shared_key.public_key(),
+            message,
+            &session.combine_signature_shares(signature_shares.values().cloned())
+        ));
+        assert_eq!(
+            session.verify_and_combine_signature_shares(&shared_key, signature_shares),
+            Err(VerifySignatureSharesError::CombinedSignatureInvalid)
+        );
+    }
 }

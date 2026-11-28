@@ -111,17 +111,26 @@ impl CoordinatorSignSession {
 
         let signature = self.combine_signature_shares(signature_shares.values().cloned());
 
+        // Valid shares only sum to a valid signature if every party in the session supplied one, so
+        // the result is checked rather than trusted.
+        let (R, s) = signature.as_tuple();
+        let c = &self.challenge;
+        let X = &self.public_key;
+        if g!(s * G - c * X) != R {
+            return Err(VerifySignatureSharesError::CombinedSignatureInvalid);
+        }
+
         Ok(signature)
     }
 
     /// Combine signatures shares into an aggregate signature.
     ///
-    /// This method does not check the validity of the `signature_shares` but if you have verified
-    /// each signature share individually the output will be a valid siganture under the `frost_key`
-    /// and message provided when starting the session.
+    /// This method does not check the validity of the `signature_shares` or of the output.
+    /// Individually verified shares only give a valid signature if every party in the session
+    /// provided one.
     ///
-    /// Alternatively you can use [`verify_and_combine_signature_shares`] which checks and combines
-    /// the signature shares.
+    /// Alternatively you can use [`verify_and_combine_signature_shares`] which checks the signature
+    /// shares and the combined signature.
     ///
     /// [`CoordinatorSignSession`]: CoordinatorSignSession::final_nonce
     /// [`verify_and_combine_signature_shares`]: Self::verify_and_combine_signature_shares
@@ -233,6 +242,9 @@ pub enum VerifySignatureSharesError {
     },
     /// One of the signature shars was invalid
     Invalid(SignatureShareInvalid),
+    /// Every signature share was valid but the combined signature was not, so no single share can
+    /// be blamed, e.g. a party in the session didn't provide a share.
+    CombinedSignatureInvalid,
 }
 
 impl core::fmt::Display for VerifySignatureSharesError {
@@ -245,6 +257,12 @@ impl core::fmt::Display for VerifySignatureSharesError {
                 )
             }
             VerifySignatureSharesError::Invalid(invalid) => write!(f, "{invalid}"),
+            VerifySignatureSharesError::CombinedSignatureInvalid => {
+                write!(
+                    f,
+                    "every signature share was valid but the combined signature was invalid"
+                )
+            }
         }
     }
 }

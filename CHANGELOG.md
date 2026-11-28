@@ -2,6 +2,8 @@
 
 ## UNRELEASED
 
+- `CoordinatorSignSession::verify_and_combine_signature_shares` now checks the combined signature and returns the new `VerifySignatureSharesError::CombinedSignatureInvalid` instead of an invalid signature.
+
 ## schnorr_fun v0.13.0
 
 A security audit of `chilldkg` produced a batch of fixes and an API rework.
